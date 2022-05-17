@@ -1,10 +1,7 @@
-## This script is uuuuugggggglllllyyy and needs some TLC before being uploaded. 
-## General order of operations is read in the metadata, do a ton of manual 
-## cleaning, then merge with respiration data and explore basic relationships
-## between environmental context (meta) and respiration. Hopefully of some use
-## to the WHONDRS Topic 3 team.... 
+## This script does some metadata cleaning, merges with respiration data, then
+## plots respiration rates versus a number of ecosystem variables of interest 
 ##
-## 2021-11-02 (updated 2022-02-03)
+## 2021-11-02 (updated 2022-05-12)
 ## Peter Regier 
 ## 
 # #############
@@ -12,31 +9,21 @@
 
 # 1. Setup environment ---------------------------------------------------------
 
-## Clear environment
-rm(list = ls())
-
 ## Load packages
 require(pacman)
-p_load(cowplot, tidyverse, parsedate, lubridate, maps)
+p_load(cowplot, # plot_grid
+       tidyverse, # keep things tidy
+       parsedate, # handle POSIX easier
+       lubridate,  # tidy date work
+       ggpubr) # stat_compare_means
 
-## Using local versions of the files, but setting a filepath so easier to generalize
-local_filepath <- "data/"
-
-## Set ggplot theme and some basic dimensions for graphs
+## Set ggplot theme
 theme_set(theme_bw())
-plot_width = 5
-plot_height = 3
-
-## Hi! I'm the only function in the whole code cause everything is manual for now
-give.n <- function(x){
-  return(c(y = median(x) / 100, label = length(x))) 
-  # experiment with the multiplier to find the perfect position
-}
 
 
 # 2. Import and format data ----------------------------------------------------
 ## Read in metadata
-meta <- read_csv(paste0(local_filepath, "WHONDRS_S19S_Metadata_v3.csv"), skip = 1) %>% 
+meta <- read_csv("data/WHONDRS_S19S_Metadata_v3.csv", skip = 1) %>% 
   ## rename all the interesting columns
   rename("id" = "Sample ID",
          "date" = "Sampling date",
@@ -141,7 +128,7 @@ meta <- read_csv(paste0(local_filepath, "WHONDRS_S19S_Metadata_v3.csv"), skip = 
                                    "the water was very turbid. and no visual inspection was possible. I assume no algal mats present" = "No"))
 
 ## Create a dataset for the respiration data
-respiration <- read_csv(paste0(local_filepath, "WHONDRS_S19S_Sediment_Incubations_Respiration_Rates.csv"))  %>% 
+respiration <- read_csv("data/WHONDRS_S19S_Sediment_Incubations_Respiration_Rates.csv") %>% 
   dplyr::mutate(id = substr(Sample_ID, 1, 9)) %>% 
   drop_na() %>% 
   group_by(id) %>% 
@@ -152,67 +139,61 @@ respiration <- read_csv(paste0(local_filepath, "WHONDRS_S19S_Sediment_Incubation
 df <- left_join(meta, respiration, by = "id")
 
 ## Write out this dataset in case it's of use later
-write_csv(df, paste0(local_filepath, "joined_metadata_respiration.csv"))
+write_csv(df, "data/joined_metadata_respiration.csv")
 
-# 3. Make a whole truckload of plots -------------------------------------------
 
-p0 <- ggplot(df %>% drop_na(), aes(stream_order, mgL_per_hr)) + geom_boxplot() + 
+# 3. Make some plots -------------------------------------------
+
+## I'm a function that prints counts on plots for each box
+give.n <- function(x){
+  return(c(y = median(x) / 100, label = length(x))) 
+  # experiment with the multiplier to find the perfect position
+}
+
+## I'm a function that counts the number of NAs for a given variable
+count_nas <- function(var){
+  nrow(df %>% filter(is.na({{var}}) | {{var}} == "NA"))
+}
+
+## Plot repiration rates v stream order
+p_stream_order <- ggplot(df %>% drop_na() %>% filter(stream_order != "NA"), 
+             aes(stream_order, mgL_per_hr)) + geom_boxplot() + 
   stat_summary(fun.data = give.n, geom = "text", fun = median, 
-               position = position_dodge(width = 0.75))
-ggsave(paste0(local_filepath, "graphs/respiration_v_stream_order.png"), width = plot_width, height = plot_height)
+               position = position_dodge(width = 0.75)) + 
+  labs(x = "Stream order", y = "Respiration rate (mg/L/hr)") + 
+  stat_compare_means(label = "p.format", label.x = 7, label.y = 25) +
+  annotate("text", x = 7, y = 23, label = paste0(count_nas(stream_order), " NAs"))
 
-p1 <- ggplot(df%>% drop_na(), aes(sed_type_recode, mgL_per_hr)) + geom_boxplot() + 
+## Plot repiration rates v sediment type
+p_sediment_type <- ggplot(df%>% drop_na(), aes(sed_type_recode, mgL_per_hr)) + geom_boxplot() + 
   stat_summary(fun.data = give.n, geom = "text", fun = median, 
-               position = position_dodge(width = 0.75))
-ggsave(paste0(local_filepath, "graphs/respiration_v_sed_type.png"), width = plot_width, height = plot_height)
+               position = position_dodge(width = 0.75)) + 
+  labs(x = "Sediment type", y = "Respiration rate (mg/L/hr)") + 
+  stat_compare_means(label = "p.format", label.x = 1, label.y = 25) +
+  annotate("text", x = 1, y = 23, label = paste0(count_nas(sed_type_recode), " NAs"))
 
-plot_grid(p0, p1, nrow = 1) 
-ggsave(paste0(local_filepath, "graphs/good_categories.png"), width = plot_width * 1.5, height = plot_height)
-
-
-p2.1 <- ggplot(df %>% drop_na(), aes(macrophytes, mgL_per_hr)) + geom_boxplot() + 
+## Plot repiration rates v macrophytes
+p_macrophytes <- ggplot(df %>% drop_na(), aes(macrophytes, mgL_per_hr)) + geom_boxplot() + 
   stat_summary(fun.data = give.n, geom = "text", fun = median, 
-               position = position_dodge(width = 0.75))
-ggsave(paste0(local_filepath, "graphs/respiration_v_macrophytes.png"), width = plot_width, height = plot_height)
+               position = position_dodge(width = 0.75)) + 
+  labs(x = "Macrophyte coverage", y = "Respiration rate (mg/L/hr)") + 
+  stat_compare_means(label = "p.format", label.x = 1, label.y = 25) +
+  annotate("text", x = 2, y = 23, label = paste0(count_nas(macrophytes), " NA"))
 
-p2.2 <- ggplot(df %>% drop_na(), aes(algal_mats_recode, mgL_per_hr)) + geom_boxplot() + 
+## Plot repiration rates v algal mats
+p_algal_mats <- ggplot(df %>% drop_na(), aes(algal_mats_recode, mgL_per_hr)) + geom_boxplot() + 
   stat_summary(fun.data = give.n, geom = "text", fun = median, 
-               position = position_dodge(width = 0.75))
-ggsave(paste0(local_filepath, "graphs/respiration_v_algal.png"), width = plot_width, height = plot_height)
+               position = position_dodge(width = 0.75)) + 
+  labs(x = "Algal mat coverage", y = "Respiration rate (mg/L/hr)") + 
+  stat_compare_means(label = "p.format", label.x = 1, label.y = 25) +
+  annotate("text", x = 1, y = 23, label = paste0(count_nas(algal_mats_recode), " NA"))
 
-plot_grid(p2.1, p2.2, nrow = 1) 
-ggsave(paste0(local_filepath, "graphs/good_categories_bio.png"), width = plot_width * 1.5, height = plot_height)
+## Combine into a multi-plot object
+plot_grid(p_stream_order, 
+          plot_grid(p_sediment_type, 
+                    p_macrophytes, 
+                    p_algal_mats, nrow = 1), ncol = 1)
 
-
-
-p3 <- ggplot(df %>% drop_na(), aes(as.numeric(longitude), mgL_per_hr)) + geom_point() + geom_smooth(se = F)
-ggsave(paste0(local_filepath, "graphs/respiration_v_longitude.png"), width = plot_width, height = plot_height)
-
-p4 <- ggplot(df %>% drop_na(), aes(as.numeric(ph), mgL_per_hr)) + geom_point() + geom_smooth(se = F)
-ggsave(paste0(local_filepath, "graphs/respiration_v_ph.png"), width = plot_width, height = plot_height)
-
-plot_grid(p3, p4, nrow = 1)
-ggsave(paste0(local_filepath, "graphs/good_correlations.png"), width = plot_width * 1.5, height = plot_height)
-
-
-q0 <- ggplot(df %>% drop_na(), aes(river_gradient_recode, mgL_per_hr)) + geom_boxplot() + 
-  stat_summary(fun.data = give.n, geom = "text", fun = median, 
-               position = position_dodge(width = 0.75)) + xlab("") + 
-  theme(axis.text.x = element_text(angle = 30, vjust = 1, hjust=1))
-
-q1 <- ggplot(df %>% drop_na(), aes(river_morphology, mgL_per_hr)) + geom_boxplot() + 
-  stat_summary(fun.data = give.n, geom = "text", fun = median, 
-               position = position_dodge(width = 0.75)) + xlab("") + 
-  theme(axis.text.x = element_text(angle = 30, vjust = 1, hjust=1))
-
-q2 <- ggplot(df %>% drop_na(), aes(veg_type_recode, mgL_per_hr)) + geom_boxplot() + 
-  stat_summary(fun.data = give.n, geom = "text", fun = median, 
-               position = position_dodge(width = 0.75)) + xlab("") + 
-  theme(axis.text.x = element_text(angle = 30, vjust = 1, hjust=1))
-
-plot_grid(q0, q1, q2, nrow = 1, align = "hv")
-ggsave(paste0(local_filepath, "graphs/bad_categories.png"), width = plot_width * 2, height = plot_height * 1.2)
-
-
-
-
+## Save that plot
+ggsave("plots/220512_respiration_plots.png", 
+       width = 6, height = 6)
